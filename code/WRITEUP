@@ -1,0 +1,2288 @@
+Title:  Writeup for Project 4, Fall 2010
+
+Date:  12/1/10
+
+Group Num 34 : 		Name            	Email            	Student ID
+			Nikhil Ratan		nratan@usc.edu		4394-9586-91
+			Anoop Singh		anoopsin@usc.edu	8466-9794-52
+			Aditya Kumar		adityaku@usc.edu	8809-1654-34
+			
+
+I. Requirements:
+   The project is divided into two parts::
+	
+	a)Implement a group communication version of the Carls Jr simulation.::
+								  1.We have to implement an extension of the distributed mutual exclusion algorithm
+								  2.It is an extension, because we need mutual exclusion (locks), monitor variables, 
+								    and condition variables for your Carls Jr simulation to work properly.
+							          3.We will need to modify your system calls from project 3, part 3,
+								    so that they send a message to the networking thread associated with the user program thread.
+								  4.We will need 2 threads for each user program. 
+								  	-> One thread will be the Carls Jr simulation entity (a Nachos user program)
+								  	-> The other thread will be listening for messages from other group members
+									   (a Nachos kernel thread).
+								  5.All the messages between networking threads, relating to locks, CVs, and MVs, must be handled in 
+								    a "totally ordered fashion".
+								  6.When a user program thread wants to perform a lock, CV, MV, operation they are to tell their
+								    networking thread.
+								  7.Since the networking thread is listening for messages from other group members, the best way 
+								    to do this is to have your lock, CV, and MV, system calls send a message to the networking 
+								    thread associated with the user program thread.	
+								 
+
+								 
+	b)Extra Credit Part(Lost Packets)                  	  ::
+								   1. We have to create a kernel function that sends a sequence number to the other kernel functions.
+								   2. Each kernel functdion should send a fixed number of messages to all other kernel functions.
+								   3. Any message received in order is to be printed out for a particular machine-ID/mailbox-number
+								      combination.
+								   4. Messages received out of order are not to be printed. 
+								   5. Each kernel function should then print out messages in increasing sequence number order for 
+								      each other kernel function.
+								   6. It is not necessary to run the Carl's Jr simulation, or to even run user programs.
+								   7. We have to test the ability of the kernel to handle lost packets. 
+								  
+
+
+
+
+
+II Assumptions :
+
+
+
+Part 1:
+	
+	
+
+
+Extra Credit:
+	
+
+
+
+
+III. Design:
+
+
+	NOTE: We have used the memory model from Project 2.
+
+
+
+	a)Editing the exec function in exception.cc
+	
+
+
+	->We edit the exec function and instead of executing one thread that we did earlier we execd two threads.
+	  1.User program thread
+	  2.Network thread
+	->We assign mailbox numbers in the exec function for this thing we need to change thread.cc and thread.h.
+	->We exec for the networking part the server which we had in project 3 part 3 as a form of a function.
+	->The user program is the Create Lock, destroy Lock etc..
+
+
+
+
+
+
+
+
+	b)Group Registration Server
+
+
+
+
+	->We started our design with the group registration server.
+	->A Group Registration Server is a server that registers all the networking threads.
+	->For the Carl Junior simulation to start all the networking threads must register with the group registration server.
+	->We have passed in the command line argument the number of user program threads that will be there beacuase the group registration server will know
+	  how many threads there are on the network.
+	The algorithm for the group registration server goes like this:
+	1.We pass the number of user program threads in the command line.
+	2.Each networking thread that is forked in the exec function will send a messgae to the group registration server to register itself with the network.
+	3.In the group registration server we just maintain a list of machine id's and mailbox id's of all the networking threads.
+	4.When a particular networking thread gets registered the group registration server sends to them the machine id and mailbox number of everyboday that
+	  is registered.
+	5.As a reply to the registration message to the network the group registration server also tells them how many replies are yet to come. 
+
+	
+	
+
+
+
+
+	c)Total Ordering Of Events
+	
+	
+
+	Definition::
+	->It means that all clinets work together in a particular order.
+	->There is no centralized decision making server i.e there is a networking thread to each user program.
+	->Clients make group decision like for example which request should be performed first and which one should follow.
+	
+	Requirements::
+	->Reliable Communication is a requirement which means there should be no lost packets.
+	->There should be global unique identifier for each group member.
+	->The total ordering of events criteria should be fullfilled.
+	
+	Process of Total Ordering::
+	->Recieve a Message
+	->Extract the timestamp and machine id and mailbox number.
+	->Upadate the last time stamp and upadate in the table of the user program.
+	->Insert the message in the message queue in timestamp order.
+	->Extract the earliest timestamp value form the table and execute that request for that timestamp.
+	
+
+
+
+
+
+
+
+
+
+	STEPS THAT NEED TO BE FOLLOWED TO IMPLEMENT THESE STEPS IN A SEQUENTIAL ORDER::
+	
+
+	1.Change the exec function in exception.cc
+	2.Then from the exec fucntion we fork a fucntion of network program we go to that function.
+	3.This function will act as the server for that particular user program that was forked in exec.
+	4.When the networking thread enters this function it goes to the group registration server and gets itself registered.
+	5.Then after getting itself registered it comes back to this function and does a recieve.
+	6.If the recieved msg is from the user program
+		->gets its time stamp
+		->add the timestamp to recieved message.
+		->send message to all members including himself
+		->do another recieve.
+	7.If the recieved message was from the networking thread
+		->extract the timestamp and the machine id and the mailbox number.
+		->Update the timestamp.
+		->Insert the message into queue in timestamp order.
+		->Extract the timestamp earliest.
+		->Process any message which has a timestamp which is less than or equal to the receieved timestamp.
+	8.We process the function as we did in project 3 part 3 like we recieved requests of create lock, destroy lock etc..
+
+
+	TOTAL ORDERING CODE:
+
+			//sent from other network thread
+			
+			if(tempValue != 10)					//10 was timestamp value
+			{
+				//Create a TimeStamp
+				gettimeofday(&timeStampValue, NULL);
+				sprintf(timeStore,"%11d%6d", timeStampValue.tv_sec, timeStampValue.tv_usec);
+		
+				for(int m=0; m < 17; m++)
+					if(timeStore[m]==' ')
+						timeStore[m]='0';
+
+			
+				messageQueue=new messageStruct;
+
+				messageQueue -> timeStamp=timeStampExtracted;
+				bzero(messageQueue -> message, MaxMailSize);
+				strcpy(messageQueue -> message, bufferTemp);
+				
+				messageQueue -> machineID=inPktHdr.from;
+				messageQueue -> mailboxNO=inMailHdr.from;
+
+	
+				//Updating TimeStamp
+				for(int m=0; m < noOfUserThreads; m++)
+					if(network_db[m].mailboxNO == inMailHdr.from && network_db[m].machineID == inPktHdr.from)
+						if(network_db[m].timeStamp < timeStampExtracted)
+							network_db[m].timeStamp=timeStampExtracted;
+				
+				
+				timeStampLong=100 * inPktHdr.from + inMailHdr.from + 1000 * timeStampExtracted;
+				
+				//Sort Message Queue by timestamp
+				messageQ -> SortedInsert((void *)messageQueue, timeStampExtracted);
+		
+				
+				bzero(buffer, MaxMailSize);
+			
+				strcpy(buffer, "10@");
+				
+				appendTS(timeStore + 6, buffer, 3);
+		
+		
+				for(int m=0; m < noOfUserThreads; m++)
+				{
+					outPktHdr.to = network_db[m].machineID;					
+					outMailHdr.to = network_db[m].mailboxNO;
+				
+		/*			clientMID= states[i].mid;					
+					clientMBN=states[i].mbn;
+		*/			
+					outMailHdr.from = currentThread -> mailboxNo;
+					outMailHdr.length = strlen(buffer)+1;		
+					success = postOffice -> Send(outPktHdr, outMailHdr, buffer); 	
+				
+					if ( !success ) 		
+					{
+						printf("The postOffice Send failed. You must not have the server Nachos running. Terminating Nachos.\n");
+						interrupt->Halt();
+					}				
+				}
+		
+			}
+		
+		
+			
+				//Updating TimeStamp
+			for(int m=0; m < noOfUserThreads; m++)
+				if(network_db[m].mailboxNO == inMailHdr.from && network_db[m].machineID == inPktHdr.from)
+					if(network_db[m].timeStamp < timeStampExtracted)
+						network_db[m].timeStamp=timeStampExtracted;
+
+
+			while(true)
+			{
+				messageToBeProcessed=(struct messageStruct *) messageQ -> SortedRemove(&timeStampLong);
+			
+				flag=true;
+			
+				timeStampConverted=timeStampLong / 100;
+			
+				if(messageToBeProcessed)
+				{
+					for(int m=0; m < noOfUserThreads; m++)
+						if(network_db[m].timeStamp < timeStampConverted)
+						{
+							messageQ -> SortedInsert((void *)messageToBeProcessed, timeStampLong);				
+				
+							flag=false;
+						
+							break;
+						}
+				}
+
+
+
+
+
+	HOW SHOULD THE USER PROGRAM START?
+
+	
+	->As we know a network thread cannot begin until the group registration server has done the registration of all the threads. 
+	->The group registration server gets to know that it has done the registration thing by just comparing it with the value that was passed in the command line. 
+	->There has to be start simulation system call which will help in starting the simultation of the Carl junior.
+
+
+
+
+
+        Types of Messages that have been used in the networking part::
+	
+	1.User Thread
+	2.Network Thread
+		->That is further divided into
+			->Request message
+			->Time stamp Update.
+	3.Group registration Reply from group registration server.
+
+
+
+
+
+
+
+
+	The message format that is sent from one place to the other it contains the data in the following order::
+	
+	1.Sequence Number
+	2.Type of Message
+	3.Time Stamp 
+	4.Type of request(create lock, destroy lock, etc etc)
+	5.The parameters for the requests.
+	
+		
+
+	CONVERSION OF CARL'S JUNIOR USERPROGRAM
+
+	->We have converted the user program that was used in Project 2 to enable networking on it.
+	->We have changed all the locks ,condition variables and monitor variables used in the second project.
+	->We have divided all the entities into specific function so that we can fork them easily.
+	->By dividing them into functions we can now fork as many number of a particular entity we want in the Carl Junior Simulation.
+	->The entities we have in the Carl Junior Simulation are Manager,OrderTaker,Customer,Waiter and Cook.
+	->We have defined a global function called "global" in every fucntion so that all the locks and the condition variables that are used globally are defined.
+	
+
+
+	
+
+Extra Credit Implementation
+
+The Extra Credit involves taking care of the packets dropped as the network reliability decreases with the values for -l with nachos. We are supposed to retransmit these lost packets if required. The steps for doing this are as follows:
+
+1. The PostOffice needs to be modified. There are two ways of doing this:
+	
+	a.	Reuse the already existing PostOffice class in post.h file to create a new class for the reliable class. This new class will then eventually have different send and receive 			methods incorporating acks and retransmissions.
+	
+	b.	Method we used - Just resuse the existing send and receive methods in the PostOffice class and the code for reliable send and receive goes here respectively.
+
+
+2.SEND AT EACH POSTOFFICE - 'ErrorFreeSend()'	All the packets which are sent must be kept track of. Each postoffice has a structure which has the following information
+
+	struct messageStruct
+
+	{
+
+		int seqNO;
+
+	
+	
+	
+	int toMachineID;	//Stores the sender's machine ID and mailbox No
+	
+		int toMailboxNO;
+
+
+
+	
+	int fromMachineID;
+	
+		int fromMailboxNO;
+	
+	
+
+		long int timeStamp;		
+
+
+
+		char message[MaxMailSize];	//Stores the message
+};
+
+	}
+
+	Each thread when sending a message, appends to it a sequence number, which starts from 0 for that thread and increases by 1 for each message sent.
+
+	The Send at that Nachos instance's postOffice stores the information regarding the message, which gives it complete information about where it was from, to where it is going and the 		message.
+
+
+3. RECEIVE AT EACH POSTOFFICE - 'ErrorFreeReceive()'	The last packet from each sender thread is stored here with the complete information. So, the receiver thread knows what is the 								sequence number of the last message from each sender. It will then know the sequence number of the packet expected next from that 							particular sender. It will not expect any out of order packets.
+
+4. Resender Thread - There is a resender thread which will resend the threads if they are not received by the receiver or the acknowledgement is not received.
+
+
+
+	
+_____________________________________________________________
+
+	Algorithm / How it Works:
+
+
+1. 	The thread sends a message. 
+			- Timer starts.
+			- Waits for ACK back so that the structure clears the sent entry
+			- If timeout expires and no ack received, the sender thread sends the message again
+
+2.	The send at that instance's postOffice stores the complete information and the actual message so that the resender thread knows everything needed in case of a retransmission.
+
+
+3. 	The receiver receives the message from the sender. Now 3 cases arise:
+	
+	3a.	The received message was in order and not a duplicate message 	
+			- Store the information about this received message.
+			- Send back an ACK to the sender thread.
+			- The receive postOffice removes the entry from the send structure. 
+
+			- This completes the successful receipt of the message.
+ 
+	
+	3b.	The received message was out of order. 
+			- Drop the message. The message will eventually be sent again from the sender due to expiration of the timer.
+
+	3c. 	Duplicate message arrives
+			- Drop the message. The receiver has the next expected sequence number expected from each sender thread.
+			  So, if the received message's sequence no. < the sequence no. expected from that sender thread, its a duplicate message and shoulf be dropped.
+
+4.	The resender thread has the sole job of retransmitting those messages that were not acknowledged and hence are still in the postOffice's send structure
+			- Check if their are messages in the struct Db in the send at postOffice.
+			- Retransmit them as no ACK received.
+			
+			3 things could have happened -
+				- Message Got Lost
+				- Ack got lost
+				- Message was correctly received by the receiver but, was out of order, so it was dropped. 		
+
+
+
+	- Classes and Structures used in Part 1 are:
+
+
+
+
+	Structures used in 4th Project
+
+
+	#ifdef NETWORK
+
+	struct db
+	{
+		int machineID;
+		int mailboxNO;
+		int sequenceNo;
+	
+		long int timeStamp;
+	};
+
+	struct messageStruct
+	{
+		int machineID;
+		int mailboxNO;
+		long int timeStamp;
+
+		char message[MaxMailSize];
+	};
+
+
+
+
+	struct waitQueue
+	{
+	    char replyMsg[40];
+	    int machineId;
+	    int mailboxNo;
+
+	};
+
+
+
+	struct mainserverLock
+	{
+	    char name[20];
+	    int myId;
+	    int status;     			 // Status is busy when it is 0 and it is free when its is 1
+	    int ownerMachineId;
+	    int ownerMailboxNo;
+	    waitQueue *waitingQueueLock[200];
+	    List *LockwaitingQueue;
+	    int waitingCount;
+   	    int waitingCount1;
+	};
+
+
+	struct MonitorVariables
+	{
+		char name[3];
+		int myId;
+		int value;
+	};
+
+
+
+	struct mainserverCV
+	{
+	    	char name[20];
+	    	int CId;
+	    	int myLockID;
+		int locksmacID;
+		int LockMailboxNo;
+		int waitingCount;
+		int valid;
+		int waitingArrayCtr;
+		int waitingArrayCtr1;
+		waitQueue waitingThread[20];
+		List *WaitList;
+	};
+
+	
+
+
+
+#endif	
+
+
+
+
+
+	a)Editing the Exec function in Exception.cc
+	
+	#ifdef NETWORK
+
+				
+	mailboxNoGeneratorLock -> Acquire();
+	execThread -> mailboxNo=mailboxNoGenerator++;				//Mailbox ID of user thread is set now
+	mailboxNoGeneratorLock -> Release();				
+
+
+	// Project 4 Code Starts	*************************************************************
+
+	Thread *networkThread;		printf("network thread called\n");
+	networkThread=new Thread("Network_Thread");
+
+	mailboxNoGeneratorLock -> Acquire();
+	networkThread -> mailboxNo=mailboxNoGenerator++;				//Mailbox ID of network thread is set now
+	mailboxNoGeneratorLock -> Release();
+
+	AddrSpace *addressSpaceForNetworkThread;
+
+	addressSpaceForNetworkThread=new AddrSpace(f);				//CHECK **************
+	addressSpaceForNetworkThread -> spaceID=processUniqueID++;		//The process's unique ID is the addrSpace's uniqueID
+
+	addressSpaceForNetworkThread -> allocateStack();
+
+
+
+	pInfoTable.noProcesses++;						//Number of processes in the system +=1
+	pInfoTable.noThreads[processUniqueID]++;				//Number of threads for Current Process +=1
+
+
+	networkThread -> processID=processUniqueID++;				//processUniqueID incremented for the next Process
+
+	//Allocate the space created to this thread's space
+	networkThread -> space=addressSpaceForNetworkThread;
+
+	//Fork the new thread.I call it execThread
+	networkThread -> Fork((VoidFunctionPtr)network_thread_function,0);
+
+
+	// Project 4 Code Ends		*************************************************************	
+	
+
+	#endif
+
+
+
+
+	b)Group Registration Server in Nettest.cc
+	
+	
+	
+	void MailTest(int farAddr)
+	{
+	// Message Format -> Seq No | Type of Message | Timestamp | Request Type | Request's Info
+	printf("Started server\n"); fflush(stdout);
+	
+	int sequenceNo=0;			// For the sequence no. in the msg
+	int typeOfMsg=0;			// Type of message = 0 for the Group Registration Message			
+	int requestType=-1;			// -1 as NA here
+	time_t ltime;				// For the timestamp
+
+
+	// Message Preperation ends here	
+
+	int noOfUserThreads, i;
+		
+	struct serverDB grpServerDB[MAX_THREADS_PER_PROCESS];		// Project 4 - Used to store [machine ID, mailbox NO);
+
+    	PacketHeader outPktHdr, inPktHdr;
+    	MailHeader outMailHdr, inMailHdr;
+    	char *data = "";
+		char *data1="";
+
+
+   
+    	char buffer[MaxMailSize];
+	
+	// Get the number of user threads
+	
+	printf("\nEnter the number of User Threads: "); fflush(stdout);
+	scanf("%d", &noOfUserThreads);
+
+	i=noOfUserThreads - 1;						// Index in structure goes from 0 to n-1
+	
+	// Accept information from noOfuserThreads number of Threads
+
+	while(i >= 0)
+	{	printf("Reached loop\n"); fflush(stdout);
+		// Wait for the first message from the other machine
+    		postOffice->Receive(0, &inPktHdr, &inMailHdr, buffer);
+    									//fflush(stdout) reqd???????	
+	printf("Recvd sth\n");  fflush(stdout);
+		// Stored both IDs for the networking thread
+		grpServerDB[i].machineID=inPktHdr.from;			//Got Machine ID !!
+		grpServerDB[i].mailboxNO=inMailHdr.from;		//Got Mailbox NO !!
+
+		
+		// Reply with noUserThreads so that each networking thread can receive for that
+		// many number of times
+
+		// Time Stamp Generation Part
+		ltime=time(NULL);	
+
+		typeOfMsg=0;
+		data = "";
+		
+		printf("seq, type, reqtype, number of threads -> %d %d %d %d\n", sequenceNo, typeOfMsg,  requestType,noOfUserThreads); fflush(stdout);
+		
+		//		sprintf(data, "%d@%d@%s@%d@%d", sequenceNo++, typeOfMsg, asctime(localtime(&ltime)), requestType, noOfUserThreads);
+		sprintf(data, "%d@%d@%d@%d", sequenceNo++, typeOfMsg,  requestType, noOfUserThreads);
+
+      	 	// construct packet, mail header for original message
+		// To: destination machine, mailbox 0
+		// From: our machine, reply to: mailbox 1
+    		outPktHdr.to = inPktHdr.from;		
+    		outMailHdr.to = inMailHdr.from;
+    		outMailHdr.from = 1;
+    		outMailHdr.length = strlen(data) + 1;
+			printf("just before send %s\n", data); fflush(stdout);
+    		// Send the first message
+    		bool success = postOffice->Send(outPktHdr, outMailHdr, data); 
+			printf("just after send\n"); fflush(stdout);
+    		if ( !success ) 
+		{
+      			printf("The postOffice Send failed. You must not have the other Nachos running. Terminating Nachos.\n"); fflush(stdout);
+      			interrupt->Halt();
+    		}
+
+
+		i--;					//For next iteration
+	}
+
+	printf("I have db now man\n"); fflush(stdout);
+
+	// By now all the networking threads have their Machine IDs and Mailbox NOs stored at the group registration server
+	// Server replies with the number of userthreads
+	// Now broadcasting this information to all the networking threads
+
+	
+	for(int xyz=0; xyz < noOfUserThreads; xyz++)
+		printf("Machine ID: %d\tMailbox No.: %d\n", grpServerDB[xyz].machineID, grpServerDB[xyz].mailboxNO); fflush(stdout);
+
+	
+	
+	int outMachineID, outMailboxNO;
+	int j, counter;
+
+	i=noOfUserThreads - 1;
+
+	//Broadcasting Database
+	
+	while (i >= 0)
+	{
+		outMachineID=grpServerDB[i].machineID;
+		outMailboxNO=grpServerDB[i].mailboxNO;		
+		
+		typeOfMsg=1;					// Type of message = 1 for the Group Registration Broadcast Message
+	
+		
+		int innerCounter=0;
+
+		char *newData = "";
+		
+		while(innerCounter < noOfUserThreads)
+		{
+			printf("Entered loop again\n");	fflush(stdout);
+		
+
+			sprintf(newData, "%d@%d@%d@%d", sequenceNo++, typeOfMsg, grpServerDB[innerCounter].machineID, grpServerDB[innerCounter++].mailboxNO);
+	
+		
+	
+	
+			
+		 	// construct packet, mail header for original message
+			// To: destination machine, mailbox 0
+			// From: our machine, reply to: mailbox 1
+    			outPktHdr.to = outMachineID;		
+    			outMailHdr.to = outMailboxNO;
+    			outMailHdr.from = 1;	
+    			outMailHdr.length = strlen(newData) + 1;
+	
+		//				printf("This send killed me %d %d %s\n", j, outMailHdr.length); fflush(stdout);
+	
+    			// Send the first message
+					printf("Data -> %s\n", newData);	fflush(stdout);
+
+					
+				bool success = postOffice->Send(outPktHdr, outMailHdr, newData); 
+	
+    			if ( !success ) 
+				{
+      				printf("The postOffice Send failed. You must not have the other Nachos running. Terminating Nachos.\n");
+      				interrupt->Halt();
+    			}
+				
+				printf("Data send\n");	fflush(stdout);
+		}
+	
+		i--;
+	}
+	
+	
+	
+
+
+	// Then we're done!
+	   interrupt->Halt();
+}
+
+
+
+
+
+
+
+	->On the exception.cc side the code for group registration server this is in the function we are exec in the exec function.
+
+	//Group Registration Phase Starts *************************************
+
+
+	sprintf(data, "%d@%d@%d", sequenceNo, typeOfMsg, requestType);
+
+	
+    	outPktHdr.to = 0;					//Group Registration Server's Machine ID goes here		
+    	outMailHdr.to = 0;
+    	outMailHdr.from = myMailboxNo;
+    	outMailHdr.length = strlen(data) + 1;
+
+
+
+    	// Send the first message
+    	bool success = postOffice->Send(outPktHdr, outMailHdr, data); 
+	//	printf("Reached here man !\n");
+    	if ( !success ) {
+      	printf("The postOffice Send failed. You must not have the other Nachos running. Terminating Nachos.\n");
+      	interrupt->Halt();
+    	}
+
+
+	// Receive the number of UserThreads
+
+	postOffice->Receive(myMailboxNo, &inPktHdr, &inMailHdr, buffer);
+	requestedMessage=strtok(buffer, "@");
+
+	
+	reqCtr=0;
+	
+	while (requestedMessage!= NULL) 
+    	{
+				request[reqCtr] = requestedMessage;
+		
+      		requestedMessage = strtok(NULL,"@");		
+		
+    	}	
+
+	noOfUserThreads=atoi(request[reqCtr]);
+
+	
+	network_db=new struct db[noOfUserThreads];
+	
+	
+
+	noOfReceives=noOfUserThreads;
+	
+	
+	//Go on receive for a certain number of times based on the no. of user threads
+	
+	int dbCounter=0;
+	
+	while(noOfReceives)
+	{
+		char newBuffer[MaxMailSize];
+		
+		postOffice->Receive(myMailboxNo, &inPktHdr, &inMailHdr, newBuffer);
+		
+        	// Creating Database
+			reqCtr=0;
+			
+        	requestedMessage = strtok(newBuffer,"@");
+			request[reqCtr] = requestedMessage;
+			
+			
+			requestedMessage = strtok(NULL,"@");			
+			request[reqCtr] = requestedMessage;
+			
+			
+			
+			requestedMessage = strtok(NULL,"@");			
+			request[reqCtr] = requestedMessage;
+			network_db[dbCounter].machineID=atoi(request[reqCtr]);
+			
+	
+			requestedMessage = strtok(NULL,"@");			
+			request[reqCtr] = requestedMessage;
+			network_db[dbCounter].mailboxNO=atoi(request[reqCtr]);
+
+			
+			dbCounter++;
+			noOfReceives--;
+	}
+	
+
+	printf("\n\n\nMy mailbox no. is %d\n\n", myMailboxNo);
+	printf("gonna print now\n");
+	for(int abc=0; abc < noOfUserThreads; abc++)
+		printf("Machine ID: %d\tMailbox No.: %d\n", network_db[abc].machineID, network_db[abc].mailboxNO);
+
+	
+
+
+	c)Total Ordering in exception.cc
+
+	
+		
+
+
+
+
+
+
+
+
+
+
+
+	Carl's Junior Fucntions that are converted cannot show all the functions that are defined we will just show the global function. 
+		
+	->Global Function
+	
+
+
+
+	void global()
+	{
+
+
+	/*Structure for the Customer*/
+
+	typedef struct Cust	
+	{
+	/*
+  	CreateMV("custID",6);		/*customer id for its identification
+ 	CreateMV("myOrderTaker",12);	/*denotes the index of the OrderTaker assigned to the customer
+	CreateMV("custTokenNo",11);	/*denotes the Token No. given to the Customer by the OrderTaker
+	CreateMV("orderType",9);		/*orderType denotes the type of Customer's Order 0 for Eat In & 1 for To Go 
+	
+	CreateMV("toGoWaiting",11);	/*denotes if the Customer is waiting in the To Go Monitor for the tokens to be 
+				/*matched by the bagger. Initialized to 0 if not waiting, else 1
+	
+	CreateMV("custDoA",7);		/*denotes if the Customer is Dead or Alive
+				/*Initialized to 0 if Customer's Dead, 1 if Customer's Alive
+
+	CreateMV("custTableID",11);	/*initialized to -1
+	CreateMV("waiterAssigned",14);	/*initialized to -1
+
+
+	/*Food items available at the Restaurant. Set to the quantity of items ordered,if ordered else 0
+
+	CreateMV("sixBurger",9);		/* 6$ Burger
+	CreateMV("threeBurger",11);	/* 3$ Burger
+	CreateMV("veggieBurger",12);	/* Veggie Burger
+	CreateMV("frenchFries",11);	/* French Fries
+	CreateMV("soda",4);		/* Soda
+	
+	*/
+
+	int custID;		/*customer id for its identification*/
+ 	int myOrderTaker;	/*denotes the index of the OrderTaker assigned to the customer*/
+	int custTokenNo;	/*denotes the Token No. given to the Customer by the OrderTaker*/
+	int orderType;		/*orderType denotes the type of Customer's Order 0 for Eat In & 1 for To Go*/ 
+	
+	int toGoWaiting;	/*denotes if the Customer is waiting in the To Go Monitor for the tokens to be*/ 
+				/*matched by the bagger. Initialized to 0 if not waiting, else 1*/
+	
+	int custDoA;		/*denotes if the Customer is Dead or Alive*/
+				/*Initialized to 0 if Customer's Dead, 1 if Customer's Alive*/
+
+	int custTableID;	/*initialized to -1*/
+	int waiterAssigned;	/*initialized to -1*/
+
+
+	/*Food items available at the Restaurant. Set to the quantity of items ordered,if ordered else 0*/
+
+	int sixBurger;		/* 6$ Burger*/
+	int threeBurger;	/* 3$ Burger*/
+	int veggieBurger;	/* Veggie Burger*/
+	int frenchFries;	/* French Fries*/
+	int soda;		/* Soda*/
+
+	}Cust;
+
+
+
+
+	typedef struct OrderTaker
+	{
+	/*
+	CreateMV("otID",4);		/*OrderTaker id for its identification
+	CreateMV("otTokenNo",9);		/*OrderTaker stores the Token No. assigned to the Customer
+
+	CreateMV("otBagTokenNo",12);	/*When the OrderTaker acts as a bagger, the Token No he bags is stored here
+				/*Value initialized to -1
+
+	CreateMV("otCash",6);		/*Denotes the amount of cash available with the OrderTaker
+				/*initialized to 0.00
+
+	CreateMV("otStatusMV",10);	/*Denotes if the OrderTaker is Free, Busy or Waiting
+	*/
+	
+	int otID;		/*OrderTaker id for its identification*/
+	int otTokenNo;		/*OrderTaker stores the Token No. assigned to the Customer*/
+
+	int otBagTokenNo;	/*When the OrderTaker acts as a bagger, the Token No he bags is stored here*/
+				/*Value initialized to -1*/
+
+	int otCash;		/*Denotes the amount of cash available with the OrderTaker*/
+				/*initialized to 0.00*/
+				
+	int otStatusMV;	/*Denotes if the OrderTaker is Free, Busy or Waiting*/ 
+	}OrderTaker;
+
+
+
+	typedef struct Waiter
+	{	/*
+	CreateMV("wID",3);
+	CreateMV("wTokenNo",8);
+	CreateMV("wStatus",7);
+	*/
+	
+	int wID;
+	int wTokenNo;
+	int wStatus;
+	
+	
+	}Waiter;
+
+
+	
+	typedef struct Table1
+	{/*
+	CreateMV("tID",3);
+	CreateMV("tStatus",7);
+	*/
+
+	int tID;
+	inttStatus;
+	}Table1;
+
+
+
+	typedef struct Manager
+	{
+	/*	CreateMV("mID",3);
+		CreateMV("mCash",5);
+	
+		*/
+	int mID;
+		int mCash;	
+	
+	}Manager;
+
+
+
+	typedef struct Cook
+	{
+	/*
+		CreateMV("cookid",6);
+		CreateMV("Status",6);
+	*/
+		int cookid;
+		int Status;
+	}Cook;
+
+
+
+	CreateMV("CustomerMAX",11);
+	SetMV("CustomerMAX",11,200);				/*Max possible number of Customers in the System*/
+	CreateMV("OrderTakerMAX",13);
+	SetMV("OrderTakerMAX",13,200);			/*Max possible number of OrderTakers in the System*/
+	CreateMV("WaiterMAX",9); 
+	SetMV("WaiterMAX",9,200);
+	CreateMV("CookMAX",7); 
+	SetMV("CookMAX",7,200);				
+	CreateMV("TableMAX",8); 
+	SetMV("TableMAX",8,200);
+	CreateMV("OrderQuantityMAX",16);
+	SetMV("OrderQuantityMAX",16,6);
+	CreateMV("OrdertypeMAX",12);
+	SetMV("OrdertypeMAX",12,2);
+	
+	CreateMV("NoCooks",7);
+	SetMV("NoCooks",7,200);
+	CreateMV("foodthreshold",13);
+	SetMV("foodthreshold",13,100);
+	
+	CreateMV("SixBurgerPrice",14);
+	SetMV("SixBurgerPrice",14,6);			/*Price for Six Dollar Burger*/
+	CreateMV("ThreeBurgerPrice",16);
+	SetMV("ThreeBurgerPrice",16,3);			/*Price for Three Dollar Burger*/
+	CreateMV("VeggieBurgerPrice",17);
+	SetMV("VeggieBurgerPrice",17,5);			/*Price for Veggie Dollar Burger*/
+	CreateMV("FrenchFriesPrice",16);
+	SetMV("FrenchFriesPrice",16,2);			/*Price for French Fries*/
+	CreateMV("SodaPrice",9);
+	SetMV("SodaPrice",9,3);				/*Price for Soda*/
+
+	CreateMV("SixBurgerStartingAmount",23);
+	SetMV("SixBurgerStartingAmount",23,100);		/*The number of Six Dollar Burger initially on the Six Dollar Burger shelf*/
+	CreateMV("ThreeBurgerStartingAmount",25);
+	SetMV("ThreeBurgerStartingAmount",25,100);		/*The number of Three Dollar Burger initially on the Three Dollar Burger shelf*/
+	CreateMV("VeggieBurgerStartingAmount",26);
+	SetMV("VeggieBurgerStartingAmount",26,100);		/*The number of Veggie Burger initially on the Veggie Burger shelf*/
+	CreateMV("FrenchFriesStartingAmount",25);
+	CreateMV("FrenchFriesStartingAmount",25);
+	SetMV("FrenchFriesStartingAmount",25,100);		/*The number of French Fries initially on the French Fries shelf*/
+
+	CreateMV("ShelfMAX",7);
+	SetMV("ShelfMAX",7,100);				/*Max possible number of items, which the shelf for each Food item type can store
+						Example, there can be a max of these many numbers of 6 $ Burger on the              							6 $ Burger Shelf. Each food type has its own shelf*/
+
+	CreateMV("WaitingOrderThreshold",21);
+	SetMV("WaitingOrderThreshold",21,1);	
+
+	
+
+	CreateMV("UncookedThreshold",17);
+	SetMV("UncookedThreshold",17,30);			/*Min no. of uncooked items that must exist in the system before manager orders*/
+
+	CreateMV("CookedThreshold",15);
+	SetMV("CookedThreshold",15);	30			/*Min no. of cooked items that must exist in the system before manager orders*/
+
+	CreateMV("CashWithdrawn",13);
+	SetMV("CashWithdrawn",13,200);
+
+	CreateMV("AddedQuantity"13);
+	SetMV("AddedQuantity"13,100);			/*Quantity added for each order, CONSTANT across the system*/
+
+	CreateMV("UncookedPrice",13);
+	SetMV("UncookedPrice",13,20);			/*Price for 1 unit of uncooked price*/
+
+
+
+	CreateMV("UncookedStartingAmount",22);
+	SetMV("UncookedStartingAmount",22,100);		/*The number of Uncooked Stock  initially in the system*/
+
+	CreateMV("InitialManagerCash",18);
+	SetMV("InitialManagerCash",18,0);	
+
+	CreateMV("baggerQueue",11);				/*The baggerQueue stores the Token Numbers of orders that need to 
+						be bagged. The OrderTaker/Manager appends the Token No. to this queue 
+						at the end of his order taking process. The bagger(OrderTaker/Manager)
+						removes the Token No. from this queue and uses it to bag the orders
+						So, the queue essentially lies between the Entity(who takes the Order and 
+						moves on to the next Customer) and the Entity(who bags the orders and at 
+						the end, hands it out to Customer himself(if to go) else puts it in the
+						waiterQueue for the waiter*/
+
+	CreateMV("waiterQueue",11);				/*The waiterQueue stores the Token Numbers of orders that need to be served.
+						This is the location from where the Waiter can pick up a Token No that needs
+						to be attended to. The waiter then finds the Customer and validates the token no*/
+
+
+
+	CreateMV("noCustomers",11);
+	CreateMV("noOrderTakers",13);
+	CreateMV("noTables",8);
+	CreateMV("noWaiters",9);
+	CreateMV("noCooks",7);
+				   		/*Number of Customers & OrderTakers are taken from the user*/
+	CreateMV("tokenNo",7);
+	SetMV("tokenNo",7,0);					/*Global Variable for the Token No. Incremented by one each time*/
+						/*and then given to both the Customer and the OrderTaker*/
+
+	int tokenToId[200];			/*Array stores the Customer ID for each Token No.. Hence, it can be */
+						/*used anytime to findout the Customer's ID for a given Token No.*/
+
+
+						/*The amount of food items currently available on each shelf is initialized*/
+						/*to the 'StartingAmount' macro*/
+	CreateMV("sixBurgerAvailable",18);
+	CreateMV("threeBurgerAvailable",20);
+	CreateMV("veggieBurgerAvailable",21);
+	CreateMV("frenchFriesAvailable",20);
+
+	CreateMV("ITEMSINQ",8);
+	SetMV("ITEMSINQ",8,0);
+	CreateMV("itemsInWaiterQueue",18);
+	SetMV("itemsInWaiterQueue",18,0);
+
+	CreateMV("noUncooked",10);					/*The amount of uncooked items currently available is initialized*/
+						/*to the 'StartingAmount' macro*/
+
+
+	CreateMV("customerIDGeneratorLock",23);
+	CreateMV("customerIDGenerator",19);
+	SetMV("customerIDGenerator",19,0;
+
+	CreateMV("orderTakerIDGeneratorLock",25);
+	CreateMV("orderTakerIDGenerator",21);
+	SetMV("orderTakerIDGenerator",21,0);
+
+	CreateMV("waiterIDGeneratorLock",21);
+	CreateMv("waiterIDGenerator",17);
+	SetMv("waiterIDGenerator",17,0)
+	SetMV("cookIDGeneratorLock",19);
+	CreateMV("cookIDGenerator",15);
+	SetMV("cookIDGenerator",15,0);
+
+	CreateMV("customerCounterLock",19);
+	CreateMV("customerCounter",15);
+	SetMV("customerCounter",15,0);
+	
+	CreateMV("randomgenerator",15);
+	/*Condition Variables and Lock Variables required for Synchronization*/
+	
+
+	/*Monitor for Customer - OrderTaker interaction, the queue part where the customer waits in the Queue for an OrderTaker to be*/
+	/*assigned to him*/
+
+	CreateMV("custLineLock",12);          		  	/*Lock for the Customers to avoid Race condition while*/
+                    				/*waiting in the Queue for the OrderTakers*/
+
+	CreateMV("custWaitingCV",13); 		      		/*OrderTaker checks this CV to see if he has to signal */
+                    				/*the next Customer*/
+
+	CreateMV("custLineLengthMV",16);
+	SetMV("custLineLengthMV",16,0);            		/*Number of Customers waiting in the Queue. Initialized to 0*/
+
+
+	/*Monitor for the Customer - OrderTaker Interaction, i.e. the Customer is done waiting in the queue and has reached*/
+	/*his assigned OrderTaker*/
+
+	int orderTakerLock[250];		      	/*Each OrderTaker has his own Lock. Array of Locks for */
+                    				/*the Customer & OrderTaker interaction  */            
+
+	int orderTakerCV[250];			     	/*Each OrderTaker has his own CV. OrderTaker checks this*/
+                    				/*CV to see if he has to signal the next Customer*/
+
+
+	/*Monitor for the Bagger - Customer (TO GO TYPE ONLY !) Interaction, i.e. when a Bagger is bagging food for the customer. This
+	Critical Region includes the time involved in waiting for food, if the required quantity was not available on the shelf.
+
+	For To Go Only !!!!
+
+
+	Steps for this Monitor:
+
+	1.	The Customer goes to wait after he has placed his order with the OrderTaker 
+	2.	When the Bagger(OrderTaker in bagging role) has bagged	the Customer's order he Broadcasts to all the To Go 
+		customers(from the baggerQueue)
+	3.	Every Customer who is waiting in this Monitor wakes up one by one and then tries to acquire the lock 
+	4.	After acquiring lock, the Customer checks each bagger for the token no they have bagged
+	5.	If the Customer's order has been bagged
+		he signals the respective bagger 
+		mana	else
+		the Customer goes to sleep again and waits for the next broadcast
+	6.	Eventually the bagger gets signaled. His otBagTokenNo gets reset to -1 and he knows that the Customer has
+	picked up his order*/
+
+
+	int waitToGoLock[200];		/*Lock for the Customer - Bagger Interaction. Each Customer has his own Lock*/ 
+	
+	int waitToGoCV[200];				
+
+	CreateMV("tokenlock",9);
+	CreateMV("baggerQueueLock",15);
+	CreateMV("waitQueueLock",13);
+
+	/*WAITER Manager monitor*/
+
+	CreateMV("waiterLock",10);
+
+	CreateMV("waiterCV",8);
+
+	CreateMV("waitEatInLock",13);
+
+	CreateMV("waitEatInCV",11);
+
+	CreateMV("cookManagerLock",15);
+	CreateMV("cookMCV",7);
+
+ 
+	/*NEW Locks*/
+
+	CreateMV("uncookedLock",12);				/*for accessing uncooked items*/
+	CreateMV("cookedLock",10);				/*for accessing either of the cooked items like 6$burger, etc..*/
+	CreateMV("otCashLock",10);				/*for accessing each ordertaker's cash*/
+
+
+	/*Structure Objects Created*/
+
+
+	Cust C[200]; 	      	 		/*C is an Array of Structures of Cust type*/
+	OrderTaker OT[200];          		/*OT is an Array of Structures of OrderTaker type*/
+	Waiter W[200];
+	Table1 T[200];
+	Manager M;
+	Cook Coo[200];
+
+
+
+
+	int i;
+	/*Start of Initializing Data*/
+
+	randomgenerator=Rand(OrdertypeMAX);
+		
+	SetMV("noOrderTakers",13,5);
+	SetMV("noCustomers",11,23);
+	SetMV("noWaiters",9,6);
+	SetMV("noTables",8,20);
+	SetMV("noCooks",7,7);
+
+	/*
+	sixBurgerAvailable=SixBurgerStartingAmount;
+	threeBurgerAvailable=ThreeBurgerStartingAmount;
+	veggieBurgerAvailable=VeggieBurgerStartingAmount;
+	frenchFriesAvailable=FrenchFriesStartingAmount;
+	noUncooked=UncookedStartingAmount;
+	*/
+
+	/*End of Initializing Data*/
+
+	for (i=0; i < 200; i++)
+		tokenToId[i]=-1;
+	
+
+	/*Start of Displaying Number of entities*/
+	/*
+	Print("\nNumber of OrderTakers=%d\n",noOrderTakers,0,0); 
+   	Print("\nNumber of Waiters=%d\n",noWaiters,0,0); 
+	Print("\nNumber of Cooks=%d\n",noCooks,0,0); 
+   	Print("\nNumber of Customers=%d\n",noCustomers,0,0); 
+  	
+	Print("\nTotal Number of tables in the Restaurant=%d\n",noTables,0,0); 
+
+	Print("\nMinimum number of cooked 6-dollar burger=%d\n", CookedThreshold,0,0); 
+  	Print("\nMinimum number of cooked 3-dollar burger=%d\n", CookedThreshold,0,0); 
+  	Print("\nMinimum number of cooked veggie burger=%d\n", CookedThreshold,0,0); 
+  	Print("\nMinimum number of cooked french fries burger=%d\n", CookedThreshold,0,0); 
+	*/
+	/*End of Displaying Number of entities*/
+
+	
+	
+	
+		
+	int customerIDGeneratorLock;
+	int customerIDGenerator=0;
+
+	int orderTakerIDGeneratorLock;
+	int orderTakerIDGenerator=0;
+
+	int waiterIDGeneratorLock;
+	int waiterIDGenerator=0;
+
+	int cookIDGeneratorLock;
+	int cookIDGenerator=0;
+
+	int customerCounterLock;
+	int customerCounter=0;
+	
+	int randomgenerator;
+	/*Condition Variables and Lock Variables required for Synchronization*/
+
+
+	/*Monitor for Customer - OrderTaker interaction, the queue part where the customer waits in the Queue for an OrderTaker to be*/
+	/*assigned to him*/
+
+	int custLineLock;          		  	/*Lock for the Customers to avoid Race condition while*/
+                    				/*waiting in the Queue for the OrderTakers*/
+
+	int custWaitingCV; 		      		/*OrderTaker checks this CV to see if he has to signal */
+                    				/*the next Customer*/
+
+	int custLineLengthMV=0;            		/*Number of Customers waiting in the Queue. Initialized to 0*/
+
+
+	/*Monitor for the Customer - OrderTaker Interaction, i.e. the Customer is done waiting in the queue and has reached*/
+	/*his assigned OrderTaker*/
+
+	int orderTakerLock[250];		      	/*Each OrderTaker has his own Lock. Array of Locks for */
+                    				/*the Customer & OrderTaker interaction  */            
+
+	int orderTakerCV[250];			     	/*Each OrderTaker has his own CV. OrderTaker checks this*/
+                    				/*CV to see if he has to signal the next Customer*/
+
+
+	/*Monitor for the Bagger - Customer (TO GO TYPE ONLY !) Interaction, i.e. when a Bagger is bagging food for the customer. This
+	Critical Region includes the time involved in waiting for food, if the required quantity was not available on the shelf.
+
+	For To Go Only !!!!
+
+
+	Steps for this Monitor:
+
+	1.	The Customer goes to wait after he has placed his order with the OrderTaker 
+	2.	When the Bagger(OrderTaker in bagging role) has bagged	the Customer's order he Broadcasts to all the To Go 
+	customers(from the baggerQueue)
+	3.	Every Customer who is waiting in this Monitor wakes up one by one and then tries to acquire the lock 
+	4.	After acquiring lock, the Customer checks each bagger for the token no they have bagged
+	5.	If the Customer's order has been bagged
+		he signals the respective bagger 
+		mana	else
+		the Customer goes to sleep again and waits for the next broadcast
+	6.	Eventually the bagger gets signaled. His otBagTokenNo gets reset to -1 and he knows that the Customer has
+		picked up his order*/
+
+
+	int waitToGoLock[200];		/*Lock for the Customer - Bagger Interaction. Each Customer has his own Lock*/ 
+	
+	int waitToGoCV[200];				
+
+	int tokenlock;
+	int baggerQueueLock;
+	int waitQueueLock;
+	
+	/*WAITER Manager monitor*/
+
+	int waiterLock;
+
+	int waiterCV;
+
+	int waitEatInLock;
+
+	int waitEatInCV;
+	
+	int cookManagerLock;
+	int cookMCV;
+
+
+	/*NEW Locks*/
+
+	int uncookedLock;				/*for accessing uncooked items*/
+	int cookedLock;				/*for accessing either of the cooked items like 6$burger, etc..*/
+       	int otCashLock;				/*for accessing each ordertaker's cash*/
+
+
+	tokenlock=CreateLock("lock", 4);
+	cookManagerLock=CreateLock("Cook_Manager",12);
+	cookMCV=CreateCondition("Cook_Manager_Waiting",20);
+
+
+	uncookedLock=CreateLock("Uncooked_Lock",13);
+	cookedLock=CreateLock("cooked_Lock",11);
+	otCashLock=CreateLock("otcash_Lock",11);
+
+	custLineLock=CreateLock("Cust_Line_Lock",14);
+	custWaitingCV=CreateCondition("Cust_Waiting_CV",15);   
+  
+	waiterLock=CreateLock("Waiter_Manager_Lock",19);
+	waiterCV=CreateCondition("Waiter_Manager_CV",17);
+
+	waitEatInLock=CreateLock("Waiter_EatIn_Lock",17);
+	waitEatInCV=CreateCondition("Waiter_EatIn_CV",15);
+
+ 
+	waitQueueLock=CreateLock("Wait_Queue_Lock",15);
+        baggerQueueLock= CreateLock("Bagger_Queue_Lock",17);
+
+	
+	customerIDGeneratorLock=CreateLock("customerIDGeneratorLock", 23);
+	orderTakerIDGeneratorLock=CreateLock("orderTakerIDGeneratorLock", 25);
+	waiterIDGeneratorLock=CreateLock("waiterIDGeneratorLock", 21);
+	cookIDGeneratorLock=CreateLock("cookIDGeneratorLock", 19);
+
+	customerCounterLock=CreateLock("a", 1);
+
+	int baggerQueue;
+	int waiterQueue;
+
+	baggerQueue=CreateList();
+	waiterQueue=CreateList();
+
+
+	}
+
+
+
+
+	EXTRA CREDIT PART::
+
+
+	We tried sending the messages from the group registration side to the networking parta as a comibined messgae but it excceded the buffer size
+	So rather than deleting the code we thought we can mention this.
+
+
+
+	
+	while (i >= 0)
+	{
+		outMachineID=grpServerDB[i].machineID;
+		outMailboxNO=grpServerDB[i].mailboxNO;		
+		
+		typeOfMsg=1;					// Type of message = 1 for the Group Registration Broadcast Message
+		
+
+		printf("main while loop\n");
+
+		counter=0;
+
+		while ( no_Per_Thread <= (noOfUserThreads - counter)) 
+		{			printf("while loop 2\n"); fflush(stdout);
+				char *data = "";
+				sprintf(data, "%d@%d", sequenceNo++, typeOfMsg);
+	
+				printf("Data -> %s\n", data);
+	
+			j=0;
+			while(j < no_Per_Thread)
+			{	printf("while loop 3\n"); fflush(stdout);
+				outMachineID=grpServerDB[counter].machineID;
+				outMailboxNO=grpServerDB[counter++].mailboxNO;		
+
+				char *data1 = "";
+				sprintf(data1, "@%d@%d", outMachineID, outMailboxNO);
+				strcat(data, data1);
+
+				printf("Data -> %s\n", data);
+
+				
+				j++;
+			}
+
+			printf("You reached here, WOW, impressive\n");fflush(stdout);
+			
+		 	// construct packet, mail header for original message
+			// To: destination machine, mailbox 0
+			// From: our machine, reply to: mailbox 1
+    			outPktHdr.to = outMachineID;		
+    			outMailHdr.to = outMailboxNO;
+    			outMailHdr.from = 1;	//printf("jo bhi\n");
+    			outMailHdr.length = strlen(data) + 1;	//printf("jo bhi sequel\n");
+	
+//				printf("This send killed me %d %d %s\n", j, outMailHdr.length); fflush(stdout);
+	
+    			// Send the first message
+    			bool success = postOffice->Send(outPktHdr, outMailHdr, data); 
+	
+    			if ( !success ) 
+				{
+      				printf("The postOffice Send failed. You must not have the other Nachos running. Terminating Nachos.\n");
+      				interrupt->Halt();
+    			}
+		}
+
+		int endValue=1000;      	
+		j=0;
+		int initiate=0;
+		
+	if(j < noOfUserThreads % no_Per_Thread)		
+	{	
+			
+			data = "";
+			
+			printf("\n\nWorking on thread \n");	
+			fflush(stdout);			
+						
+	//		sprintf(data, "%d@%d", sequenceNo++, typeOfMsg);
+	//		printf("Data with seqno and type -> %s\n", data);
+
+	
+			
+		while(j < noOfUserThreads % no_Per_Thread)
+		{	
+			if (initiate == 0)
+			{	printf("******************************************************************\n");fflush(stdout);
+				sprintf(data, "%d@%d", sequenceNo++, typeOfMsg);
+				initiate++;
+			}
+			
+			char *data1 = "";
+			
+			printf("I sent-> %d %d %d\n", grpServerDB[counter].machineID, grpServerDB[counter].mailboxNO, counter );
+			
+			sprintf(data1, "@%d@%d", grpServerDB[counter].machineID, grpServerDB[counter].mailboxNO);
+	
+			printf("Sent before uff\n");
+	
+			strcat(data, data1);
+			
+			printf("Data -> %s\n", data);
+			
+			printf("Sent uff\n");
+			
+			counter++;
+			j++;
+		}
+	}
+
+		char *data1 = "";
+		sprintf(data1, "@%d", endValue);
+		strcat(data, data1);
+
+		printf("Data -> %s\n", data);
+		
+		 // construct packet, mail header for original message
+		// To: destination machine, maixlbox 0
+		// From: our machine, reply to: mailbox 1
+    		outPktHdr.to = outMachineID;		
+    		outMailHdr.to = outMailboxNO;
+    		outMailHdr.from = 1;
+    		outMailHdr.length = strlen(data) + 1;
+	
+			printf("this 1 crashed man! %d %d %s leng %d max %d", outPktHdr.to, outMailHdr.to, data, outMailHdr.length, MaxMailSize);  fflush(stdout);
+	
+	
+    		// Send the first message
+    		bool success = postOffice->Send(outPktHdr, outMailHdr, data); 
+	
+    		if ( !success ) 
+		{
+      			printf("The postOffice Send failed. You must not have the other Nachos running. Terminating Nachos.\n");
+      			interrupt->Halt();
+    		}
+
+			printf("Crashed sequel\n");
+
+		i--;					//For next iteration
+	}
+*/
+	
+	
+
+	// Must receive the "db_received" ack from each networking
+
+- Classes used in Part 2 are:
+
+
+	
+    
+
+IV. Implementation:
+
+	+ Files Modified
+
+        Part 1:
+            
+            /code/network/Makefile
+            /code/network/nettest.cc
+            /code/userprog/syscall.h
+            /code/userprog/exception.cc
+            /code/threads/system.h
+            /code/threads/thread.cc
+            /code/threads/thread.h
+
+        Extra Credit:
+            /code/userprog/exception.cc
+            /code/userprog/addressspace.cc
+            /code/userprog/addressspace.h
+            /code/threads/system.h
+        
+        
+	+ Files added
+	
+        Part 1: /code/test/grpregtest
+		/code/test/grpregfunc
+		/code/test/totalordtest
+		/code/test/totalordfunc
+		
+		
+
+
+V. Testing:  (For each test case, you must show)
+	+ Test Cases
+
+        Part 1 & 2:
+	1.To test the Group Registration Server on 3 instance of nachos
+		
+
+			
+	2.To test the Group Registration Server on 5 instance of nachos
+
+		
+
+	3.To test the total ordering of events on 3 instance of nachos
+		
+
+
+	4.To test the total ordering of events on 5 instance of nachos
+	
+	
+	5.To test the Carl Junior on distributed Nachos on 2 instances.
+
+
+
+
+
+
+
+    + How to test and Test Output
+
+        Part 1 & 2:
+
+
+            1.To test the Group Registration Server on 3 instance of nachos
+		
+
+		-run the group registration server on one instance of nachos with a fixed machine i.e 0 . 
+
+		For example :: nachos -grpregserver -m 0
+			
+		Number of user threads : 6
+		
+
+		-run on the second instance of nachos 
+
+		
+			nachos -x ../test/grpregtest -m 1
+
+
+		-run on the third instance of nachos 
+
+			 nachos -x ../test/grpregtest -m 2
+
+                
+                Sample Output:
+
+
+		aludra.usc.edu(12): nachos -grpregserver -m 0
+	
+Started server
+Enter the number of User Threads: 6
+Reached loop
+Recvd sth
+seq, type, reqtype, number of threads -> 0 0 -1 6
+just before send 0@0@-1@6
+just after send
+Reached loop
+Recvd sth
+just before send 1@0@-1@6
+just after send
+Reached loop
+Recvd sth
+just before send 2@0@-1@6
+just after send
+Reached loop
+Recvd sth
+just before send 3@0@-1@6
+just after send
+Reached loop
+Recvd sth
+just before send 4@0@-1@6
+just after send
+Reached loop
+Recvd sth
+just before send 5@0@-1@6
+just after send
+I have db now man
+Machine ID: 2   Mailbox No.: 5
+Machine ID: 2   Mailbox No.: 3
+Machine ID: 2   Mailbox No.: 1
+Machine ID: 1   Mailbox No.: 5
+Machine ID: 1   Mailbox No.: 3
+Machine ID: 1   Mailbox No.: 1
+Entered loop again
+Data -> 6@1@2@5
+Data send
+Entered loop again
+Data -> 7@1@2@3
+Data send
+Entered loop again
+Data -> 8@1@2@1
+Data send
+Entered loop again
+Data -> 9@1@1@5
+Data send
+Entered loop again
+Data -> 10@1@1@3
+Data send
+Data -> 11@1@1@1
+Data send
+Data -> 12@1@2@5
+Data send
+Data -> 13@1@2@3
+Data send
+Data -> 14@1@2@1
+Data send
+Data -> 15@1@1@5
+Data send
+Data -> 16@1@1@3
+Data send
+Data -> 17@1@1@1
+Data send
+Data -> 18@1@2@5
+Data send
+Data -> 19@1@2@3
+Data send
+Data -> 20@1@2@1
+Data -> 21@1@1@5
+Data send
+Data -> 22@1@1@3
+Data send
+Data -> 23@1@1@1
+Data send
+Data -> 24@1@2@5
+Data send
+Data -> 25@1@2@3
+Data send
+Data -> 26@1@2@1
+Data send
+Data -> 27@1@1@5
+Data send
+Data -> 28@1@1@3
+Data send
+Data -> 29@1@1@1
+Data send
+Data -> 30@1@2@5
+Data send
+Data -> 31@1@2@3
+Data send
+Data -> 32@1@2@1
+Data send
+Data -> 33@1@1@5
+Data send
+Data -> 34@1@1@3
+Data send
+Data -> 35@1@1@1
+Data send
+Data -> 36@1@2@5
+Data send
+Data -> 37@1@2@3
+Data send
+Data -> 38@1@2@1
+Data send
+Data -> 39@1@1@5
+Data send
+Data -> 40@1@1@3
+Data send
+Data -> 41@1@1@1
+Data send
+Machine halting!
+
+Ticks: total 1053615880, idle 1053614170, system 1710, user 0
+Disk I/O: reads 0, writes 0
+Console I/O: reads 0, writes 0
+Paging: faults 0
+Network I/O: packets received 6, sent 42
+
+
+ 
+
+On the seond instance of nachos the output would be:
+
+aludra.usc.edu(8): nachos -x ../test/grpregtest -m 1
+Entering Execnetwork thread called
+Entering Execnetwork thread called
+Entering Execnetwork thread called
+In the userprogram 
+In the userprogram 
+In the userprogram 
+
+
+
+My mailbox no. is 1
+
+gonna print now
+Machine ID: 2   Mailbox No.: 5
+Machine ID: 2   Mailbox No.: 3
+Machine ID: 2   Mailbox No.: 1
+Machine ID: 1   Mailbox No.: 5
+Machine ID: 1   Mailbox No.: 3
+Machine ID: 1   Mailbox No.: 1
+Network Thread actually starts listening from now
+
+
+
+My mailbox no. is 3
+
+gonna print now
+Machine ID: 2   Mailbox No.: 5
+Machine ID: 2   Mailbox No.: 3
+Machine ID: 2   Mailbox No.: 1
+Machine ID: 1   Mailbox No.: 5
+Machine ID: 1   Mailbox No.: 3
+Machine ID: 1   Mailbox No.: 1
+Network Thread actually starts listening from now
+
+
+
+My mailbox no. is 5
+
+gonna print now
+Machine ID: 2   Mailbox No.: 5
+Machine ID: 2   Mailbox No.: 3
+Machine ID: 2   Mailbox No.: 1
+Machine ID: 1   Mailbox No.: 5
+Machine ID: 1   Mailbox No.: 3
+Machine ID: 1   Mailbox No.: 1
+Network Thread actually starts listening from now
+
+
+                   
+
+
+
+
+On the third instance of nachos the output would be:
+
+
+aludra.usc.edu(20): nachos -x ../test/grpregtest -m 2
+Entering Execnetwork thread called
+Entering Execnetwork thread called
+Entering Execnetwork thread called
+In the userprogram 
+In the userprogram 
+In the userprogram 
+
+
+
+My mailbox no. is 1
+
+gonna print now
+Machine ID: 2   Mailbox No.: 5
+Machine ID: 2   Mailbox No.: 3
+Machine ID: 2   Mailbox No.: 1
+Machine ID: 1   Mailbox No.: 5
+Machine ID: 1   Mailbox No.: 3
+Machine ID: 1   Mailbox No.: 1
+Network Thread actually starts listening from now
+
+
+
+My mailbox no. is 3
+
+gonna print now
+Machine ID: 2   Mailbox No.: 5
+Machine ID: 2   Mailbox No.: 3
+Machine ID: 2   Mailbox No.: 1
+Machine ID: 1   Mailbox No.: 5
+Machine ID: 1   Mailbox No.: 3
+Machine ID: 1   Mailbox No.: 1
+Network Thread actually starts listening from now
+
+
+
+My mailbox no. is 5
+
+gonna print now
+Machine ID: 2   Mailbox No.: 5
+Machine ID: 2   Mailbox No.: 3
+Machine ID: 2   Mailbox No.: 1
+Machine ID: 1   Mailbox No.: 5
+Machine ID: 1   Mailbox No.: 3
+Machine ID: 1   Mailbox No.: 1
+Network Thread actually starts listening from now
+
+
+Succesfully........
+
+
+
+	   2.To test the Group Registration Server on 5 instance of nachos
+		
+
+		-run the group registration server on one instance of nachos with a fixed machine i.e 0 . 
+
+		For example :: nachos -grpregserver -m 0
+			
+		Number of user threads : 12
+		
+
+		-run on the second instance of nachos 
+
+		
+			nachos -x ../test/grpregtest -m 1
+
+
+		-run on the third instance of nachos 
+
+			 nachos -x ../test/grpregtest -m 2
+
+
+		-run on the fourth instance of nachos 
+
+			 nachos -x ../test/grpregtest -m 3
+
+		-run on the fifth instance of nachos 
+
+			 nachos -x ../test/grpregtest -m 4
+
+
+	Sample Output:: Output will be same as the above output.
+
+
+
+	  3.To test the total ordering of events on 3 instance of nachos
+	
+		To start the test, execute the following command from the network directory:
+
+		For example :: nachos -grpregserver -m 0
+			
+		Number of user threads : 2
+		
+
+		-run on the second instance of nachos 
+
+		
+			nachos -x ../test/totalordtest -m 1
+
+
+		-run on the third instance of nachos 
+
+			 nachos -x ../test/totalordtest -m 2
+
+
+		
+	
+                   
+
+	    Sample Output:
+
+
+DO THIS: nachos -grpregserver -m 0
+
+aludra.usc.edu(19): nachos -grpregserver -m 0
+Started server
+
+Enter the number of User Threads: 2
+Reached loop
+Recvd sth
+seq, type, reqtype, number of threads -> 0 0 -1 2
+just before send 0@0@-1@2
+just after send
+Reached loop
+Recvd sth
+just before send 1@0@-1@2
+just after send
+I have db now man
+Machine ID: 2   Mailbox No.: 1
+Machine ID: 1   Mailbox No.: 1
+Entered loop again
+Data -> 2@1@2@1
+Data send
+Entered loop again
+Data -> 3@1@1@1
+Data send
+Entered loop again
+Data -> 4@1@2@1
+Data send
+Entered loop again
+Data -> 5@1@1@1
+Data send
+Machine halting!
+
+Ticks: total 488041420, idle 488041070, system 350, user 0
+Disk I/O: reads 0, writes 0
+Console I/O: reads 0, writes 0
+Paging: faults 0
+Network I/O: packets received 2, sent 6
+
+
+
+DO THIS: nachos -x ../test/totalordtest -m 1
+
+
+aludra.usc.edu(27): nachos -x ../test/totalordtest -m 1
+Entering Execnetwork thread called
+In the userprogram 
+
+CREATING NETWORK CREATE LOCK SYSTEM CALL
+The lock name is = Lock A
+ Request Sent
+CreateLock:Got "1@6@Lock A" from 1, box -1
+CREATING NETWORK ACQUIRE SYSTEM CALL
+The index of lock to be acquired is = 1 
+Acquire:Got "3@1" from 1, box -1
+CREATING NETWORK RELEASE SYSTEM CALL
+The lock that is being released has id = 1
+Release:Got "4@1" from 1, box -1
+CREATING NETWORK DESTROY LOCK SYSTEM CALL
+The lock that is destroyed is = 1 
+ Request Sent
+DestroyLock:Got "2@1" from 1, box -1
+
+
+
+My mailbox no. is 1
+
+gonna print now
+Machine ID: 2   Mailbox No.: 1
+Machine ID: 1   Mailbox No.: 1
+Network Thread actually starts listening from now
+
+
+
+
+
+DO THIS : nachos -x ../test/totalordtest -m 2
+
+
+
+aludra.usc.edu(3): nachos -x ../test/totalordtest -m 2
+Entering Execnetwork thread called
+In the userprogram 
+
+CREATING NETWORK CREATE LOCK SYSTEM CALL
+The lock name is = Lock A
+ Request Sent
+CreateLock:Got "1@6@Lock A" from 2, box -1
+CREATING NETWORK ACQUIRE SYSTEM CALL
+The index of lock to be acquired is = 1 
+Acquire:Got "3@1" from 2, box -1
+CREATING NETWORK RELEASE SYSTEM CALL
+The lock that is being released has id = 1
+Release:Got "4@1" from 2, box -1
+CREATING NETWORK DESTROY LOCK SYSTEM CALL
+The lock that is destroyed is = 1 
+ Request Sent
+DestroyLock:Got "2@1" from 2, box -1
+
+
+
+My mailbox no. is 1
+
+gonna print now
+Machine ID: 2   Mailbox No.: 1
+Machine ID: 1   Mailbox No.: 1
+Network Thread actually starts listening from now
+
+
+
+
+
+Succesfully........
+
+
+	4.To test the total ordering of events on 5 instance of nachos
+	
+		To start the test, execute the following command from the network directory:
+
+		For example :: nachos -grpregserver -m 0
+			
+		Number of user threads : 4
+		
+
+		-run on the second instance of nachos 
+
+		
+			nachos -x ../test/totalordtest -m 1
+
+
+		-run on the third instance of nachos 
+
+			 nachos -x ../test/totalordtest -m 2
+
+		-run on the second instance of nachos 
+
+		
+			nachos -x ../test/totalordtest -m 3
+
+
+		-run on the third instance of nachos 
+
+			 nachos -x ../test/totalordtest -m 4
+
+
+
+	Sample Output:	Sample output will be the same as test 3 but with 5 instances.
+	
+
+
+
+	5.To test the Carl Junior on distributed system on 2 instances.
+	
+		To start the test, execute the following command from the network directory:
+
+		For example :: nachos -grpregserver -m 0
+			
+		Number of user threads : 5 //one for each entity
+		
+
+		-run on the second instance of nachos 
+
+		
+			nachos -x ../test/carljunior -m 1
+
+
+	Sample Output: 
+
+aludra.usc.edu(5): nachos -grpregserver -m 0
+Started server
+
+Enter the number of User Threads: 6
+Reached loop
+Recvd sth
+seq, type, reqtype, number of threads -> 0 0 -1 6
+just before send 0@0@-1@6
+just after send
+Reached loop
+Recvd sth
+just before send 1@0@-1@6
+just after send
+Reached loop
+Recvd sth
+just before send 2@0@-1@6
+just after send
+Reached loop
+Recvd sth
+just before send 3@0@-1@6
+just after send
+Reached loop
+Recvd sth
+just before send 4@0@-1@6
+just after send
+Reached loop
+^C
+Cleaning up...
+aludra.usc.edu(6): nachos -grpregserver -m 0
+Started server
+
+Enter the number of User Threads: 5
+Reached loop
+Recvd sth
+seq, type, reqtype, number of threads -> 0 0 -1 5
+just before send 0@0@-1@5
+just after send
+Reached loop
+Recvd sth
+just before send 1@0@-1@5
+just after send
+Reached loop
+Recvd sth
+just before send 2@0@-1@5
+just after send
+Reached loop
+Recvd sth
+Data -> 9@1@1@1
+Data send
+Entered loop again
+Data -> 10@1@1@9
+Data send
+Data -> 11@1@1@7
+Data send
+Data -> 12@1@1@5
+Data send
+Data -> 13@1@1@3
+Data send
+Data -> 14@1@1@1
+Data send
+Data -> 15@1@1@9
+Data send
+Data -> 16@1@1@7
+Data send
+Data -> 17@1@1@5
+Data send
+Data -> 18@1@1@3
+Data send
+Data -> 19@1@1@1
+Data send
+Data -> 20@1@1@9
+Data send
+Data -> 21@1@1@7
+Data send
+Data -> 22@1@1@5
+Data send
+Data -> 23@1@1@3
+Data send
+Data -> 24@1@1@1
+Data send
+Data -> 25@1@1@9
+Data send
+Data -> 26@1@1@7
+Data send
+Data -> 27@1@1@5
+Data send
+Data -> 28@1@1@3
+Data send
+Data -> 29@1@1@1
+Data send
+Machine halting!
+
+Ticks: total 29015750, idle 29014470, system 1280, user 0
+Disk I/O: reads 0, writes 0
+Console I/O: reads 0, writes 0
+Paging: faults 0
+Network I/O: packets received 5, sent 30
+
+
+
+
+On the other instance:
+
+aludra.usc.edu(4): nachos -x ../test/carljunior -m 1
+Entering Execnetwork thread called
+Entering Execnetwork thread called
+Entering Execnetwork thread called
+Entering Execnetwork thread called
+Entering Execnetwork thread called
+CREATING NETWORK ACQUIRE SYSTEM CALL
+The index of lock to be acquired is = 0 
+CREATING NETWORK ACQUIRE SYSTEM CALL
+The index of lock to be acquired is = 0 
+CREATING NETWORK ACQUIRE SYSTEM CALL
+The index of lock to be acquired is = 0 
+CREATING NETWORK ACQUIRE SYSTEM CALL
+The index of lock to be acquired is = 0 
+CREATING NETWORK ACQUIRE SYSTEM CALL
+The index of lock to be acquired is = 0 
+Acquire:Got "3@0" from 1, box -1
+Acquire:Got "3@0" from 1, box 1
+CREATING NETWORK RELEASE SYSTEM CALL
+The lock that is being released has id = 0
+Acquire:Got "3@0" from 1, box 3
+CREATING NETWORK RELEASE SYSTEM CALL
+The lock that is being released has id = 0
+Acquire:Got "3@0" from 1, box 5
+CREATING NETWORK RELEASE SYSTEM CALL
+The lock that is being released has id = 0
+Acquire:Got "3@0" from 1, box 7
+Request Sent
+Wait:Got "7@0@0" from 1, box 7
+CREATING NETWORK RELEASE SYSTEM CALL
+The lock that is being released has id = 0
+Request Sent
+Wait:Got "7@1@5" from 1, box 1
+CREATING NETWORK RELEASE SYSTEM CALL
+The lock that is being released has id = 1
+Acquire:Got "3@0" from 1, box 3
+CREATING SIGNAL WAIT SYSTEM CALL
+Release:Got "4@0" from 1, box 5
+CREATING NETWORK ACQUIRE SYSTEM CALL
+The index of lock to be acquired is = 0 
+Release:Got "4@0" from 1, box 7
+Release:Got "4@1" from 1, box 1
+CREATING NETWORK ACQUIRE SYSTEM CALL
+The index of lock to be acquired is = 0 
+Request Sent
+Signal:Got "8@0@0" from 1, box 3
+CREATING NETWORK ACQUIRE SYSTEM CALL
+The index of lock to be acquired is = 0 
+Acquire:Got "3@0" from 1, box 5
+CREATING NETWORK RELEASE SYSTEM CALL
+The lock that is being released has id = 0
+Acquire:Got "3@0" from 1, box 1
+CREATING NETWORK ACQUIRE SYSTEM CALL
+The index of lock to be acquired is = 1 
+Acquire:Got "3@0" from 1, box 3
+CREATING NETWORK RELEASE SYSTEM CALL
+The lock that is being released has id = 0
+Release:Got "4@0" from 1, box 5
+CREATING NETWORK ACQUIRE SYSTEM CALL
+The index of lock to be acquired is = 0 
+Acquire:Got "3@1" from 1, box 1
+CREATING NETWORK RELEASE SYSTEM CALL
+The lock that is being released has id = 0
+Release:Got "4@0" from 1, box 3
+
+Customer 0 is giving order to OrderTaker -1
+
+OrderTaker -1 is taking order of Customer 0
+
+Customer 0 is given token number 0 by the OrderTaker -1
+CREATING NETWORK ACQUIRE SYSTEM CALL
+The index of lock to be acquired is = 0 
+Acquire:Got "3@0" from 1, box 5
+CREATING NETWORK RELEASE SYSTEM CALL
+The lock that is being released has id = 0
+Release:Got "4@0" from 1, box 1
+Waiting for a Signal
+Acquire:Got "3@0" from 1, box 3
+
+
+
+VI. Discussion:
+
+	+ Experiment expectation.  (What you hope will happen.)
+	   In this project we have to implement a distributed system with packet drop handling capability 
+
+	+ Experiment result.  (What actually happens.)
+	  Total Ordering Works perfectly but carl junior wasnt able to run till completion after conversion of the user program. 
+
+	+ Explanation
+
+
+VII. Miscellaneous:
+
+NA
+
+
+	
+	
+					   
